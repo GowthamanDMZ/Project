@@ -1,0 +1,104 @@
+SELECT DISTINCT
+    oh.order_date AS "orderDate"
+    , oh.PARENT_RETAKE_NO as "parentRetakeNo"
+    , oc.CHANNEL_NAME as "orderChannel"
+    , usablecs.ACCESS_CODE as "reorderCode"
+    , usablecs.PHOTOGRAPHY_DATE AS "photographyDate"
+    , ol2."lookPrototypeId"
+    , trim(replace(ol2."lookToken", cs.CAPTURE_SESSION_KEY, '')) AS "lookNo"
+    , oh.MATCHED_CAPTURE_SESSION_ID as "captureSession"
+    , apo.APO_ID AS "apoId"
+    , apo.SCHOOL_YEAR AS "schoolYear"
+    , sp.SUB_PROGRAM_NAME AS "subprogramName"
+    , null AS "marketingProgram"
+    , apo.FULFILLING_LAB_SYSTEM AS "fulfillingLabSystem"
+    , nvl(item.SHUTTERFLY_ELIGIBLE,'N') AS "isShutterflyEligible"
+    , DECODE(item.TAX_PRODUCT_CODE, 'ELECIMAGES', '1', '0') AS "isDigital"
+    , s.SUBJECT_KEY AS "subjectKey"
+    , s.FIRST_NAME AS "subjectFirstName"
+    , s.LAST_NAME AS "subjectLastName"
+    , s.GRADE AS "subjectGrade"
+    , acct.account_name AS "accountName"
+    , acct.latitude AS "accountLatitude"
+    , acct.longitude AS "accountLongitude"
+    , acct.PHYSICAL_ADDRESS_LINE1 || ' ' || acct.CITY || ', ' || acct.STATE || ' ' || acct.POSTAL_CODE AS "accountAddress"
+    , prof.LIFETOUCH_USER_PROFILE_ID AS "customerKey"
+    , prof.first_name AS "customerFirstName"
+    , prof.last_name AS "customerLastName"
+    , prof.account_email_address AS "customerEmail"
+    , addr.line1 AS "address1"
+    , addr.line2 AS "address2"
+    , addr.city AS "city"
+    , addr.state_province AS "state"
+    , addr.postal_code AS "postalCode"
+    , addr.country AS "countryCode"
+    , addr.phone_number AS "mobile"
+    , case
+    when apo.FULFILLING_LAB_SYSTEM = 'Prism' then 1
+    when tag.tag in ('LDX', 'BRT') then 0
+    else 1
+    end as "ldxLooksUsed"
+    from
+    ods_own.order_header oh
+    , ods_own.order_line_detail old
+    , ods_own.order_line ol
+    , ods_own.order_line_element ole
+    , ods_own.capture_session cs
+    , ods_own.subject s
+    , ods_own.item item
+    , ods_own.apo apo
+    , ods_own.order_channel oc
+    , ods_own.sub_program sp
+    , ods_own.account acct
+    , ods_own.user_profile prof
+    , ods_own.user_address addr
+    , ods_own.APO_TAG tag
+    , (
+    -- SUBQUERY TO GET LOOK INFO
+    select ol.ORDER_LINE_OID, ole.alias_id AS "lookToken", ole.element_value AS "lookPrototypeId"
+    from ods_own.order_line_element ole
+    , ods_own.order_line_detail old
+    , ods_own.order_line ol
+    , ods_own.order_header oh
+    where ole.ORDER_LINE_DETAIL_OID=old.ORDER_LINE_DETAIL_OID
+        and old.ORDER_LINE_OID=ol.ORDER_LINE_OID
+        and ol.ORDER_HEADER_OID=oh.ORDER_HEADER_OID
+        and ole.ALIAS_TYPE='LOOKTOKEN'
+    ) ol2
+    , (
+    -- SUBQUERY TO GET USABLE CAPTURE SESSIONS FOR THE SUBJECT
+    select cs.SUBJECT_OID, cs.CAPTURE_SESSION_OID, cs.CAPTURE_SESSION_KEY, cs.ACCESS_CODE, e.PHOTOGRAPHY_DATE
+    from ODS_OWN.subject s
+    , ODS_OWN.capture_session cs
+    , ODS_OWN.event e
+    , ODS_OWN.image i
+    where cs.SUBJECT_OID=s.SUBJECT_OID
+        and cs.EVENT_OID=e.EVENT_OID
+        and i.CAPTURE_SESSION_OID=cs.CAPTURE_SESSION_OID
+        and i.IS_DEGISTERED=0
+        and i.IS_IMAGE_AVAILABLE=1
+        and i.PRINTABLE_IND=1
+        and i.GUEST_VIS_IMG=1
+        and i.SUBJECTS_TYPE='INDIVIDUAL'
+        and (i.LTI_IMAGE_URL like 'ltimage:AIR%' or i.AIRIMAGEURL is not null)
+    ) usablecs
+    where 1=1
+    and s.SUBJECT_OID=cs.SUBJECT_OID
+    and s.SUBJECT_OID=usablecs.SUBJECT_OID
+    and oh.MATCHED_CAPTURE_SESSION_ID=cs.CAPTURE_SESSION_KEY
+    and oh.ORDER_CHANNEL_OID=oc.ORDER_CHANNEL_OID
+    and ol.ORDER_LINE_OID=ol2.ORDER_LINE_OID
+    and ol.ORDER_HEADER_OID=oh.ORDER_HEADER_OID
+    and ol.ORDER_LINE_OID=old.ORDER_LINE_OID
+    and ol.ITEM_OID=item.ITEM_OID
+    and old.ORDER_LINE_DETAIL_OID=ole.ORDER_LINE_DETAIL_OID
+    and oh.APO_OID=apo.APO_OID
+    and apo.APO_OID=tag.APO_OID (+)
+    and tag.TAG_GROUP='Platform'
+    and apo.ACCOUNT_OID=acct.ACCOUNT_OID
+    and apo.SUB_PROGRAM_OID=sp.SUB_PROGRAM_OID
+    and oh.USER_PROFILE_OID=prof.USER_PROFILE_OID (+)
+    and prof.user_profile_oid=addr.user_profile_oid (+)
+    and (oh.USER_PROFILE_OID is null or addr.user_address_oid is null or addr.ADDRESS_TYPE in (1,2)) -- Contact/Shipping Address
+    and ol.ORDERED_QUANTITY>0
+    and oh.ORDER_NO=?
