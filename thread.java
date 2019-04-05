@@ -105,8 +105,9 @@ public class LoadCFGService{
 		boolean gotData = true;
 		while (gotData) {
 			
-			if(count==4){
+			if(count==5){
 				gotData=false;
+				continue;
 			}
 			
 			try {
